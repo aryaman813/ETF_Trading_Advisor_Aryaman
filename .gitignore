@@ -1,0 +1,11 @@
+# Environment files
+/.env
+/ibkr_lite_ai_alert_bot/.env
+
+# Python cache and local build artifacts
+__pycache__/
+*.pyc
+.venv/
+
+# Local logs
+/ibkr_lite_ai_alert_bot/logs/
