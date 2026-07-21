@@ -1,11 +1,26 @@
-# Environment files
-/.env
-/ibkr_lite_ai_alert_bot/.env
+# Environment & Secrets (Matches any nested .env)
+.env
+*.env
 
-# Python cache and local build artifacts
-__pycache__/
-*.pyc
+# Python Virtual Environments
 .venv/
+venv/
+ENV/
 
-# Local logs
-/ibkr_lite_ai_alert_bot/logs/
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs & Generated Output Data
+logs/
+*.log
+*.jsonl
+*.csv
+
+# IDEs & System Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

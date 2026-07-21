@@ -62,12 +62,23 @@ def _normalize_history(symbol: str, start_date: str, end_date: str) -> pd.DataFr
 def _strategy_signal_score(hist: pd.DataFrame) -> pd.DataFrame:
     hist = hist.copy()
     close = hist["Close"]
+    
+    # 1. Calculate Technical Indicators
     hist["sma_20"] = close.rolling(20).mean()
     hist["sma_50"] = close.rolling(50).mean()
-    hist["rsi_14"] = rsi_series(close, 14)
-    hist["momentum_5d_pct"] = close.pct_change(5) * 100
-    hist["trend_spread_pct"] = (close / hist["sma_20"] - 1) * 100
+    hist["rsi_14"] = rsi_series(close, 14) # Requires external 'indicators' module
+    
+    # 5-day percentage change (Momentum)
+    hist["momentum_5d_pct"] = close.pct_change(5) * 100 
+    
+    # Distance between current price and the 20-day moving average
+    hist["trend_spread_pct"] = (close / hist["sma_20"] - 1) * 100 
+    
+    # A custom score combining momentum and trend strength (used later for analysis)
     hist["signal_score"] = hist["momentum_5d_pct"].fillna(0) + hist["trend_spread_pct"].fillna(0)
+    
+    # 2. Define the Entry Logic
+    # Creates a boolean column (True/False) that is True only when ALL conditions are met
     hist["enter_long"] = (
         (hist["momentum_5d_pct"] > 0)
         & (close > hist["sma_20"])
@@ -85,6 +96,20 @@ def _max_drawdown_pct(equity_curve: pd.Series) -> float:
     drawdown = equity_curve / running_max - 1
     return float(drawdown.min() * 100)
 
+
+# To know if the strategy is actually good, raw returns aren't enough. The script calculates several key metrics in _trade_metrics:
+
+# Hit Rate: The percentage of trades that were profitable.
+
+# Sharpe Ratio: Measures return relative to risk (volatility). A higher number is better.
+
+# Max Drawdown: The largest peak-to-trough drop in the portfolio's value, highlighting the strategy's worst-case historical risk.
+
+# It then compares the strategy against two baselines:
+
+# Buy and Hold: Just buying the ETFs on day one and doing nothing (_buy_and_hold_metrics).
+
+# Equal-Weight Benchmark: A continuously rebalanced portfolio holding all the ETFs equally (_equal_weight_benchmark). If the active trading strategy doesn't beat this simple benchmark, it may not be worth trading.
 
 def _trade_metrics(trades: pd.DataFrame, cost_bps_round_trip: float) -> dict[str, float | int | None]:
     if trades.empty:
@@ -137,30 +162,43 @@ def _trade_metrics(trades: pd.DataFrame, cost_bps_round_trip: float) -> dict[str
 
 
 def _build_trade_rows(hist: pd.DataFrame, symbol: str, cfg: BacktestConfig) -> list[dict[str, object]]:
+    """
+    Simulates executing trades for a single symbol based on entry signals and a fixed holding period.
+    """
     rows: list[dict[str, object]] = []
+
+    # 1. Filter out warm-up rows where moving averages or RSI are still NaN
     usable = hist.dropna(subset=["Close", "sma_20", "sma_50", "momentum_5d_pct", "rsi_14"]).copy()
     if usable.empty:
         return rows
 
     idx = 0
+    # 2. Step through time day-by-day (stop early enough so the trade exit fits within dataset boundaries)
     while idx < len(usable) - (cfg.hold_days + 1):
         signal_row = usable.iloc[idx]
+
+        # If no 'enter_long' signal was generated today, advance to the next day
         if not bool(signal_row["enter_long"]):
             idx += 1
             continue
 
-        entry_idx = idx + 1
-        exit_idx = entry_idx + cfg.hold_days
+        # 3. Determine trade execution dates
+        entry_idx = idx + 1                  # Enter on the close of the next trading day
+        exit_idx = entry_idx + cfg.hold_days # Exit after holding for the configured duration (e.g., 5 days)
+
+        # Prevent index out-of-bounds if the exit date falls after our historical data ends
         if exit_idx >= len(usable):
             break
 
         entry_row = usable.iloc[entry_idx]
         exit_row = usable.iloc[exit_idx]
 
+        # 4. Extract trade execution prices and compute raw trade profit/loss (%)
         entry_price = float(entry_row["Close"])
         exit_price = float(exit_row["Close"])
         gross_return_pct = (exit_price / entry_price - 1) * 100
 
+        # 5. Record the trade payload with all required metadata (prevents KeyError downstream)
         rows.append(
             {
                 "symbol": symbol,
@@ -177,6 +215,7 @@ def _build_trade_rows(hist: pd.DataFrame, symbol: str, cfg: BacktestConfig) -> l
             }
         )
 
+        # 6. Skip ahead to the day after exit to avoid opening overlapping trades on the same ticker
         idx = exit_idx + 1
 
     return rows
@@ -249,6 +288,11 @@ def _build_equal_weight_curve(histories: dict[str, pd.DataFrame]) -> pd.Series:
     portfolio_returns = returns_frame.mean(axis=1)
     return (1 + portfolio_returns).cumprod()
 
+# Finally, _plot_backtest_outputs automatically generates four PNG charts using matplotlib and saves them to a logs/backtest_plots folder:
+# An Equity Curve comparing the strategy's growth to the equal-weight benchmark.
+# A Histogram showing the distribution of winning vs. losing trades.
+# A Bar Chart showing which specific ETFs generated the best average returns
+# .A Scatter Plot mapping the signal_score against actual net returns to see if stronger signals actually led to higher profits.
 
 def _plot_backtest_outputs(
     trades: pd.DataFrame,

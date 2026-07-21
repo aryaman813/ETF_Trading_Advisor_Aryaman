@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 
 def sma(series: pd.Series, window: int) -> float | None:
@@ -68,7 +69,7 @@ def rsi_series(series: pd.Series, window: int = 14) -> pd.Series:
     avg_loss = loss.rolling(window).mean()
 
     # Calculate the relative strength (RS) series by dividing the average gain series by the average loss series.
-    rs = avg_gain / avg_loss.replace(0, pd.NA)
+    rs = avg_gain / avg_loss.replace(0, np.nan)
     # Calculate the RSI values using the formula: 100 - (100 / (1 + RS))
     values = 100 - (100 / (1 + rs))
     # Assign the calculated RSI values to the corresponding indices in the result series.
